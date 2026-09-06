@@ -45,43 +45,67 @@ async function loadTargetUrls() {
 }
 // ==============================================================
 
-// 🤖 [핵심 음성 캡차 엔진]
+// 🤖 [핵심 음성 캡차 엔진] - 태그형/버튼형 모두 지원하는 하이브리드 모드
 async function solveAudioCaptcha(page, logPrefix) {
     try {
-        const audioResponsePromise = new Promise((resolve) => {
-            const onResponse = async (response) => {
-                const url = response.url();
-                if (url.includes('.mp3') && !url.includes('.php')) {
-                    try {
-                        const buffer = await response.buffer();
-                        if (buffer.length > 0) {
-                            page.off('response', onResponse); 
-                            resolve(buffer);
-                        }
-                    } catch (e) {}
-                }
-            };
-            page.on('response', onResponse);
+        let audioBase64 = "";
+
+        // 💡 1. 화면에 대놓고 <audio> 태그가 있는지 스캔합니다.
+        const audioTagSrc = await page.evaluate(() => {
+            const audioEl = document.querySelector('audio#captcha_audio');
+            return audioEl ? audioEl.src : null;
         });
 
-        const mp3Button = await page.$('#captcha_mp3');
-        if (!mp3Button) throw new Error("스피커 버튼 없음");
-        
-        console.log(`${logPrefix} 🎵 오디오 버튼 클릭!`);
-        await mp3Button.click();
+        if (audioTagSrc) {
+            // 💡 [패턴 A] 오디오 태그가 있는 사이트 (주소에서 직접 추출)
+            console.log(`${logPrefix} 🎵 오디오 태그 발견! 직접 파일을 추출합니다.`);
+            
+            audioBase64 = await page.evaluate(async (url) => {
+                const res = await fetch(url);
+                const blob = await res.blob();
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result.split(',')[1]); // Base64만 추출
+                    reader.readAsDataURL(blob);
+                });
+            }, audioTagSrc);
 
-        console.log(`${logPrefix} ⏳ (사람처럼 연기) 오디오가 끝까지 재생될 때까지 느긋하게 기다립니다...`);
-        
-        const [audioBuffer] = await Promise.all([
-            Promise.race([
+        } else {
+            // 💡 [패턴 B] 기존 방식 (스피커 버튼을 누르고 네트워크 낚아채기)
+            const audioResponsePromise = new Promise((resolve) => {
+                const onResponse = async (response) => {
+                    const url = response.url();
+                    if (url.includes('.mp3') && !url.includes('.php')) {
+                        try {
+                            const buffer = await response.buffer();
+                            if (buffer.length > 0) {
+                                page.off('response', onResponse); 
+                                resolve(buffer);
+                            }
+                        } catch (e) {}
+                    }
+                };
+                page.on('response', onResponse);
+            });
+
+            const mp3Button = await page.$('#captcha_mp3');
+            if (!mp3Button) throw new Error("스피커 버튼도, 오디오 태그도 없습니다.");
+            
+            console.log(`${logPrefix} 🎵 오디오 버튼 클릭!`);
+            await mp3Button.click();
+
+            const audioBuffer = await Promise.race([
                 audioResponsePromise,
                 new Promise((_, reject) => setTimeout(() => reject(new Error('오디오 응답 시간 초과')), 10000))
-            ]),
-            randomWait(6, 6) 
-        ]);
-        
-        const audioBase64 = audioBuffer.toString('base64');
+            ]);
+            audioBase64 = audioBuffer.toString('base64');
+        }
 
+        // 💡 2. 사람처럼 오디오가 끝까지 재생될 때까지 6초간 느긋하게 기다립니다.
+        console.log(`${logPrefix} ⏳ (사람처럼 연기) 오디오가 끝까지 재생될 때까지 느긋하게 기다립니다...`);
+        await randomWait(6, 6);
+
+        // 💡 3. 다 듣고 나서야 파이썬 서버로 분석을 요청합니다.
         console.log(`${logPrefix} 📨 파이썬 STT 서버로 음성 분석 요청 전송 중...`);
         const response = await fetch('http://127.0.0.1:5000/solve_audio', {
             method: 'POST',
@@ -195,7 +219,8 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             throw new Error("글쓰기 권한 없음"); 
         }
 
-        const hasCaptcha = await page.$('#captcha_img, #kcaptcha_image, #captcha_mp3');
+        // 💡 [핵심 추가] #captcha_audio 가 있는지도 검사 대상에 포함
+        const hasCaptcha = await page.$('#captcha_img, #kcaptcha_image, #captcha_mp3, #captcha_audio');
         if (!hasCaptcha) {
             console.log(`${logPrefix} ⚠️ [빠른 손절] 캡차가 아예 없습니다! (차단 의심)`);
             throw new Error("캡차 없음"); 
@@ -237,7 +262,6 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             dialogMessage = ''; 
 
             if (attempt > 1) {
-                // 💡 [핵심 변경] 새로고침 버튼(#captcha_reload) 우선 클릭 로직 적용
                 console.log(`${logPrefix} 🔄 [${attempt}번째 재도전] 새로운 문제를 받기 위해 캡차 [새로고침] 버튼을 클릭합니다...`);
                 await page.evaluate(() => {
                     const reloadBtn = document.querySelector('#captcha_reload');

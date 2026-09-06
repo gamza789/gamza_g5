@@ -1,7 +1,7 @@
 const puppeteer = require('puppeteer');
 
 async function testAudioCaptcha() {
-    console.log("🚀 [스마트 재도전 봇] 사람과 똑같은 순서(듣기 -> 생각하기 -> 입력)로 작동합니다!\n");
+    console.log("🚀 [스마트 재도전 봇] 모든 형태의 음성 캡차(태그형/버튼형)를 자동으로 돌파합니다!\n");
 
     const browser = await puppeteer.launch({ 
         headless: false, 
@@ -16,11 +16,12 @@ async function testAudioCaptcha() {
 
     try {
         console.log(`\n🌐 게시판 접속 중...`);
-        await page.goto('http://id-a.co.kr/bbs/write.php?bo_table=free', { waitUntil: 'networkidle2' });
+        await page.goto('https://dev.2ndroad.jp/bbs/write.php?bo_table=free', { waitUntil: 'networkidle2' });
         
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        const hasCaptcha = await page.$('#captcha_img, #kcaptcha_image, #captcha_mp3');
+        // 캡차 영역이 아예 없는지 1차 검사
+        const hasCaptcha = await page.$('#captcha_img, #kcaptcha_image, #captcha_mp3, #captcha_audio');
         if (!hasCaptcha) {
             console.log("⚠️ [빠른 손절] 자동등록방지 캡차가 아예 없습니다! (차단 의심)");
             throw new Error("캡차 없음"); 
@@ -32,7 +33,6 @@ async function testAudioCaptcha() {
             console.log(`\n🔄 [시도 ${attempt}회차] 음성 인식 진행 중...`);
 
             if (attempt > 1) {
-                // 💡 [핵심 변경] 이미지 대신 전용 '새로고침 버튼'을 확실하게 누릅니다.
                 console.log("🔄 새로운 문제를 받기 위해 캡차 [새로고침] 버튼을 클릭합니다...");
                 await page.evaluate(() => {
                     const reloadBtn = document.querySelector('#captcha_reload');
@@ -47,43 +47,64 @@ async function testAudioCaptcha() {
                 await new Promise(resolve => setTimeout(resolve, 3000)); 
             }
 
-            // MP3 파일을 낚아채기 위한 준비
-            const audioResponsePromise = new Promise((resolve) => {
-                const onResponse = async (response) => {
-                    const url = response.url();
-                    
-                    if (url.includes('.mp3') && !url.includes('.php')) {
-                        try {
-                            const buffer = await response.buffer();
-                            if (buffer.length > 0) {
-                                page.off('response', onResponse); 
-                                resolve(buffer);
-                            }
-                        } catch (e) {}
-                    }
-                };
-                page.on('response', onResponse); 
+            let audioBase64 = "";
+
+            // 💡 1. 화면에 대놓고 <audio> 태그가 있는지 스캔합니다.
+            const audioTagSrc = await page.evaluate(() => {
+                const audioEl = document.querySelector('audio#captcha_audio');
+                return audioEl ? audioEl.src : null;
             });
 
-            const mp3Button = await page.$('#captcha_mp3');
-            if (!mp3Button) throw new Error("스피커 버튼 없음");
-            
-            // 1. 오디오 버튼 클릭!
-            console.log("🎵 오디오 버튼 클릭!");
-            await mp3Button.click();
+            if (audioTagSrc) {
+                // 💡 [패턴 A] 오디오 태그가 있는 사이트 (주소에서 직접 추출)
+                console.log(`🎵 오디오 태그 발견! 직접 파일을 추출합니다.`);
+                
+                audioBase64 = await page.evaluate(async (url) => {
+                    const res = await fetch(url);
+                    const blob = await res.blob();
+                    return new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result.split(',')[1]); // Base64만 추출
+                        reader.readAsDataURL(blob);
+                    });
+                }, audioTagSrc);
 
-            // 백그라운드에서 파일은 즉시 확보하지만, 아직 서버로 보내지 않습니다.
-            const audioBuffer = await Promise.race([
-                audioResponsePromise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error('응답 시간 초과')), 10000))
-            ]);
-            const audioBase64 = audioBuffer.toString('base64');
+            } else {
+                // 💡 [패턴 B] 기존 방식 (스피커 버튼을 누르고 네트워크 낚아채기)
+                const audioResponsePromise = new Promise((resolve) => {
+                    const onResponse = async (response) => {
+                        const url = response.url();
+                        if (url.includes('.mp3') && !url.includes('.php')) {
+                            try {
+                                const buffer = await response.buffer();
+                                if (buffer.length > 0) {
+                                    page.off('response', onResponse); 
+                                    resolve(buffer);
+                                }
+                            } catch (e) {}
+                        }
+                    };
+                    page.on('response', onResponse); 
+                });
 
-            // 💡 2. 사장님이 말씀하신 순서대로, 일단 끝까지 다 들을 때까지 기다립니다!
+                const mp3Button = await page.$('#captcha_mp3');
+                if (!mp3Button) throw new Error("스피커 버튼도, 오디오 태그도 없습니다.");
+                
+                console.log("🎵 오디오 버튼 클릭! (네트워크 낚아채기 모드)");
+                await mp3Button.click();
+
+                const audioBuffer = await Promise.race([
+                    audioResponsePromise,
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('응답 시간 초과')), 10000))
+                ]);
+                audioBase64 = audioBuffer.toString('base64');
+            }
+
+            // 💡 2. 사람처럼 오디오가 끝까지 재생될 때까지 느긋하게 기다립니다.
             console.log("⏳ (사람처럼 연기) 오디오가 끝까지 재생될 때까지 느긋하게 기다립니다...");
             await new Promise(resolve => setTimeout(resolve, 6000));
 
-            // 💡 3. 다 듣고 나서야 뇌(파이썬 서버)로 보내서 생각을 시작합니다!
+            // 💡 3. 파이썬 STT 서버로 분석 요청
             console.log("📨 파이썬 STT 서버로 분석 요청 중...");
             const response = await fetch('http://127.0.0.1:5000/solve_audio', {
                 method: 'POST',
@@ -93,7 +114,7 @@ async function testAudioCaptcha() {
             
             const resultData = await response.json();
             
-            // 💡 4. 생각(분석)한 결과를 뱉어냅니다!
+            // 💡 4. 결과 출력
             if (resultData.status === 'success') {
                 const text = resultData.result;
                 console.log(`✨ AI 인식 결과: [ ${text} ] (${text.length}자리)`);
@@ -104,7 +125,6 @@ async function testAudioCaptcha() {
                     break; 
                 } else {
                     console.log(`⚠️ [오류] 숫자가 6자리가 아닙니다. (현재 ${attempt}/5회 시도)`);
-                    // 이미 위에서 오디오 시간만큼 기다렸으니 여기서는 바로 다음 루프로 넘어갑니다.
                 }
             } else {
                 console.log(`❌ 파이썬 서버 에러. (현재 ${attempt}/5회 시도)`);
