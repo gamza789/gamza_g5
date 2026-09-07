@@ -17,8 +17,8 @@ const API_FORMAT = [...new Set([...titleKeys, ...contentKeys, 'url'])].join(',')
 // 창 개수 설정 (2개: 좌우 / 4개: 2x2 격자)
 const RUN_COUNT = 2; 
 
-// 💡 [새로운 설정] 반복(사이클) 실행 기능
-const REPEAT_COUNT = 3;         // 전체 주소 리스트를 몇 바퀴 돌릴지 (예: 하루 3번)
+// 💡 [사이클 설정] 0: 무제한 반복 / 1 이상: 해당 횟수만큼 반복
+const REPEAT_COUNT = 0;         
 const REPEAT_DELAY_MIN = 60;    // 한 바퀴 다 돌고 다음 시작까지 쉴 시간 (분 단위)
 // ==============================================================
 
@@ -162,8 +162,6 @@ function getWindowBounds(index, screenWidth, screenHeight, totalCount) {
 
 async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex, cycleNumber) {
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
-    
-    // 로그 프리픽스에 현재 진행 중인 사이클(바퀴 수)까지 표시합니다.
     const logPrefix = `[C${cycleNumber} 창 #${workerId + 1} url_${urlIndex}]`;
 
     const browser = await puppeteer.launch({
@@ -317,7 +315,7 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
     }
 }
 
-// 💡 [핵심 변경] 전체 사이클을 1회 실행하는 함수로 분리했습니다.
+// 💡 1회 사이클 실행 함수
 async function runPostingCycle(cycleNumber, screen) {
     const targetUrls = await loadTargetUrls();
     if (targetUrls.length === 0) {
@@ -325,7 +323,11 @@ async function runPostingCycle(cycleNumber, screen) {
         return false;
     }
 
-    console.log(`📋 총 ${targetUrls.length}개의 타겟 URL을 불러왔습니다. (현재 사이클: ${cycleNumber} / ${REPEAT_COUNT})`);
+    if (REPEAT_COUNT === 0) {
+        console.log(`📋 총 ${targetUrls.length}개의 타겟 URL을 불러왔습니다. (현재 사이클: ${cycleNumber}번째 / 무제한 반복 중)`);
+    } else {
+        console.log(`📋 총 ${targetUrls.length}개의 타겟 URL을 불러왔습니다. (현재 사이클: ${cycleNumber} / ${REPEAT_COUNT})`);
+    }
     
     let contentQueue = []; 
     let currentUrlIndex = 0;
@@ -365,7 +367,6 @@ async function runPostingCycle(cycleNumber, screen) {
 
             const contentData = contentQueue.shift(); 
             
-            // 파라미터에 cycleNumber도 함께 넘겨줍니다.
             await runSingleBrowser(workerId, targetUrl, contentData, screen.width, screen.height, RUN_COUNT, myJobIndex + 1, cycleNumber);
             
             await randomWait(2, 4);
@@ -378,19 +379,30 @@ async function runPostingCycle(cycleNumber, screen) {
     }
     await Promise.all(workers);
     
-    return true; // 사이클 무사 완료
+    return true; 
 }
 
-// 💡 [핵심 변경] 사용자가 설정한 횟수만큼 반복(Loop)하며 사이를 띄우는 마스터 함수
+// 💡 마스터 실행 함수 (무제한 혹은 지정 횟수 반복)
 async function startMultiPosting() {
     console.log(`🚀 [다중 창 모드] 100% 음성 인식(STT) 전용 자동 포스팅을 시작합니다!`);
-    console.log(`🔄 [사이클 설정] 총 ${REPEAT_COUNT}바퀴 실행 / 1바퀴 종료 시 ${REPEAT_DELAY_MIN}분 대기\n`);
+    
+    if (REPEAT_COUNT === 0) {
+        console.log(`🔄 [사이클 설정] 무제한 반복 모드 / 1바퀴 종료 시 ${REPEAT_DELAY_MIN}분 대기\n`);
+    } else {
+        console.log(`🔄 [사이클 설정] 총 ${REPEAT_COUNT}바퀴 실행 / 1바퀴 종료 시 ${REPEAT_DELAY_MIN}분 대기\n`);
+    }
 
     const screen = await getScreenResolution();
 
-    for (let cycle = 1; cycle <= REPEAT_COUNT; cycle++) {
+    let cycle = 1;
+    // REPEAT_COUNT가 0이면 무조건 true(무한루프), 0이 아니면 지정된 횟수까지만 작동
+    while (REPEAT_COUNT === 0 || cycle <= REPEAT_COUNT) {
         console.log(`\n=================================================`);
-        console.log(` 🌀 [진행도: ${cycle} / ${REPEAT_COUNT}] 작업을 시작합니다!`);
+        if (REPEAT_COUNT === 0) {
+            console.log(` 🌀 [진행도: ${cycle}번째 바퀴 / 무제한] 작업을 시작합니다!`);
+        } else {
+            console.log(` 🌀 [진행도: ${cycle} / ${REPEAT_COUNT}] 작업을 시작합니다!`);
+        }
         console.log(`=================================================\n`);
         
         const success = await runPostingCycle(cycle, screen);
@@ -400,11 +412,13 @@ async function startMultiPosting() {
             break; 
         }
 
-        if (cycle < REPEAT_COUNT) {
+        // 무한루프거나 아직 마지막 바퀴가 아니라면 대기(휴식) 돌입
+        if (REPEAT_COUNT === 0 || cycle < REPEAT_COUNT) {
             console.log(`\n🎉 [사이클 ${cycle}] 완료! 다음 실행을 위해 ${REPEAT_DELAY_MIN}분 동안 대기(휴식)합니다...`);
-            // 입력하신 REPEAT_DELAY_MIN 만큼 대기합니다. (밀리초 변환)
             await new Promise(res => setTimeout(res, REPEAT_DELAY_MIN * 60 * 1000));
         }
+        
+        cycle++;
     }
     
     console.log("\n🎊 설정된 모든 반복 작업이 완전히 끝났습니다! 오늘 작업 끝!");
