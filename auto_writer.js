@@ -17,24 +17,26 @@ const API_FORMAT = [...new Set([...titleKeys, ...contentKeys, 'url'])].join(',')
 // 창 개수 설정 (2개: 좌우 / 4개: 2x2 격자)
 const RUN_COUNT = 2; 
 
+// 💡 [새로운 설정] 반복(사이클) 실행 기능
+const REPEAT_COUNT = 3;         // 전체 주소 리스트를 몇 바퀴 돌릴지 (예: 하루 3번)
+const REPEAT_DELAY_MIN = 60;    // 한 바퀴 다 돌고 다음 시작까지 쉴 시간 (분 단위)
+// ==============================================================
+
 const randomWait = (minSec, maxSec) => { 
     const ms = Math.floor(Math.random() * (maxSec - minSec + 1) + minSec) * 1000;
     return new Promise(resolve => setTimeout(resolve, ms));
 };
 
-// 💡 일반 에러 로그 (log.txt)
 async function logError(logPrefix, errorMessage) {
     const timeStr = new Date().toLocaleString();
     const logData = `[${timeStr}] ${logPrefix} ❌ 에러: ${errorMessage}\n`;
     try { await fs.appendFile(path.join(__dirname, 'log.txt'), logData, 'utf8'); } catch (e) {}
 }
 
-// 💡 글쓰기 권한 없는 URL만 따로 모아두는 로그 (url_error.txt)
 async function logErrorUrl(targetUrl) {
     try { await fs.appendFile(path.join(__dirname, 'url_error.txt'), targetUrl + '\n', 'utf8'); } catch (e) {}
 }
 
-// 💡 [안전장치 1] URL 파일이 없으면 봇 실행 차단
 async function loadTargetUrls() {
     try {
         const filePath = path.join(__dirname, 'url.txt');
@@ -48,9 +50,8 @@ async function loadTargetUrls() {
         return []; 
     }
 }
-// ==============================================================
 
-// 🤖 [핵심 음성 캡차 엔진] - 태그형/버튼형 하이브리드
+// 🤖 [핵심 음성 캡차 엔진]
 async function solveAudioCaptcha(page, logPrefix) {
     try {
         let audioBase64 = "";
@@ -136,7 +137,6 @@ async function solveAudioCaptcha(page, logPrefix) {
         throw error; 
     }
 }
-// ==============================================================
 
 async function getScreenResolution() {
     const tempBrowser = await puppeteer.launch({ headless: true, args: ['--window-size=1920,1080'] }); 
@@ -160,10 +160,11 @@ function getWindowBounds(index, screenWidth, screenHeight, totalCount) {
     }
 }
 
-async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex) {
+async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex, cycleNumber) {
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
     
-    const logPrefix = `[창 #${workerId + 1} url_${urlIndex}]`;
+    // 로그 프리픽스에 현재 진행 중인 사이클(바퀴 수)까지 표시합니다.
+    const logPrefix = `[C${cycleNumber} 창 #${workerId + 1} url_${urlIndex}]`;
 
     const browser = await puppeteer.launch({
         headless: false,
@@ -198,7 +199,6 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
     const pickedTitleKey = titleKeys[Math.floor(Math.random() * titleKeys.length)];
     const pickedContentKey = contentKeys[Math.floor(Math.random() * contentKeys.length)];
     
-    // 이 단계까지 왔다면 키가 정상적이지만 혹시 몰라 대비합니다.
     const titleToInput = contentData[pickedTitleKey] ? String(contentData[pickedTitleKey]) : "제목 누락";
     const contentToInput = contentData[pickedContentKey] ? String(contentData[pickedContentKey]) : "내용 누락";
     
@@ -317,82 +317,97 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
     }
 }
 
-async function startMultiPosting() {
-    console.log(`🚀 [다중 창 모드] 100% 음성 인식(STT) 전용 자동 포스팅을 시작합니다!\n`);
-
-    try {
-        const targetUrls = await loadTargetUrls();
-        if (targetUrls.length === 0) {
-            console.log("❌ 더 이상 진행할 수 없어 프로그램을 안전하게 종료합니다.");
-            return;
-        }
-
-        console.log(`📋 총 ${targetUrls.length}개의 타겟 URL을 불러왔습니다.`);
-        
-        const screen = await getScreenResolution();
-        
-        let contentQueue = []; 
-        let currentUrlIndex = 0;
-        let isFetchingContent = false; 
-
-        async function runWorker(workerId) {
-            while (currentUrlIndex < targetUrls.length) {
-                const myJobIndex = currentUrlIndex++;
-                const targetUrl = targetUrls[myJobIndex];
-
-                while (contentQueue.length === 0) {
-                    if (!isFetchingContent) {
-                        isFetchingContent = true;
-                        console.log(`\n🔄 [창 #${workerId + 1}] API 서버에서 콘텐츠 추가 요청 중...`);
-                        const newContents = await generateContent(API_FORMAT);
-                        
-                        if (newContents && newContents.length > 0) {
-                            
-                            // 💡 [안전장치 2] 설정한 글감 키값(SELECTED_TITLE/CONTENT)이 진짜로 데이터에 있는지 검증
-                            const sampleData = newContents[0];
-                            const hasValidTitle = titleKeys.some(k => sampleData[k] !== undefined);
-                            const hasValidContent = contentKeys.some(k => sampleData[k] !== undefined);
-
-                            if (!hasValidTitle || !hasValidContent) {
-                                console.log("\n===========================================================");
-                                console.log("🚨 [긴급 공지] 제목(SELECTED_TITLE) 또는 내용(SELECTED_CONTENT) 설정이 잘못되었습니다!");
-                                console.log(`🚨 API가 전달한 데이터 안에 사장님이 설정하신 이름표가 존재하지 않습니다.`);
-                                console.log(`👉 현재 설정된 제목: [ ${SELECTED_TITLE} ]`);
-                                console.log(`👉 현재 설정된 내용: [ ${SELECTED_CONTENT} ]`);
-                                console.log(`🚨 오타가 없는지 확인하시고 다시 실행해 주세요.`);
-                                console.log("===========================================================\n");
-                                console.log("❌ 잘못된 글이 등록되는 것을 막기 위해 모든 작업을 즉시 종료합니다.");
-                                process.exit(1); // 💡 여기서 즉시 봇 프로그램 전체를 강제 종료합니다.
-                            }
-                            
-                            contentQueue.push(...newContents); 
-                            console.log(`✅ 글감 충전 완료! (현재 남은 개수: ${contentQueue.length}개)\n`);
-                        }
-                        isFetchingContent = false;
-                    } else {
-                        await randomWait(1, 1); 
-                    }
-                }
-
-                const contentData = contentQueue.shift(); 
-                
-                await runSingleBrowser(workerId, targetUrl, contentData, screen.width, screen.height, RUN_COUNT, myJobIndex + 1);
-                
-                await randomWait(2, 4);
-            }
-        }
-
-        const workers = [];
-        for (let i = 0; i < Math.min(RUN_COUNT, targetUrls.length); i++) {
-            workers.push(runWorker(i));
-        }
-        await Promise.all(workers);
-
-        console.log("\n🎉 모든 URL 대상 작업이 완료되었습니다!");
-
-    } catch (error) {
-        console.error("실행 중 치명적 에러:", error);
+// 💡 [핵심 변경] 전체 사이클을 1회 실행하는 함수로 분리했습니다.
+async function runPostingCycle(cycleNumber, screen) {
+    const targetUrls = await loadTargetUrls();
+    if (targetUrls.length === 0) {
+        console.log("❌ 타겟 URL을 불러오지 못해 이 사이클을 취소합니다.");
+        return false;
     }
+
+    console.log(`📋 총 ${targetUrls.length}개의 타겟 URL을 불러왔습니다. (현재 사이클: ${cycleNumber} / ${REPEAT_COUNT})`);
+    
+    let contentQueue = []; 
+    let currentUrlIndex = 0;
+    let isFetchingContent = false; 
+
+    async function runWorker(workerId) {
+        while (currentUrlIndex < targetUrls.length) {
+            const myJobIndex = currentUrlIndex++;
+            const targetUrl = targetUrls[myJobIndex];
+
+            while (contentQueue.length === 0) {
+                if (!isFetchingContent) {
+                    isFetchingContent = true;
+                    console.log(`\n🔄 [C${cycleNumber} 창 #${workerId + 1}] API 서버에서 콘텐츠 추가 요청 중...`);
+                    const newContents = await generateContent(API_FORMAT);
+                    
+                    if (newContents && newContents.length > 0) {
+                        const sampleData = newContents[0];
+                        const hasValidTitle = titleKeys.some(k => sampleData[k] !== undefined);
+                        const hasValidContent = contentKeys.some(k => sampleData[k] !== undefined);
+
+                        if (!hasValidTitle || !hasValidContent) {
+                            console.log("\n===========================================================");
+                            console.log("🚨 [긴급 공지] 제목(SELECTED_TITLE) 또는 내용(SELECTED_CONTENT) 설정이 잘못되었습니다!");
+                            console.log("===========================================================\n");
+                            process.exit(1); 
+                        }
+                        
+                        contentQueue.push(...newContents); 
+                        console.log(`✅ 글감 충전 완료! (현재 남은 개수: ${contentQueue.length}개)\n`);
+                    }
+                    isFetchingContent = false;
+                } else {
+                    await randomWait(1, 1); 
+                }
+            }
+
+            const contentData = contentQueue.shift(); 
+            
+            // 파라미터에 cycleNumber도 함께 넘겨줍니다.
+            await runSingleBrowser(workerId, targetUrl, contentData, screen.width, screen.height, RUN_COUNT, myJobIndex + 1, cycleNumber);
+            
+            await randomWait(2, 4);
+        }
+    }
+
+    const workers = [];
+    for (let i = 0; i < Math.min(RUN_COUNT, targetUrls.length); i++) {
+        workers.push(runWorker(i));
+    }
+    await Promise.all(workers);
+    
+    return true; // 사이클 무사 완료
+}
+
+// 💡 [핵심 변경] 사용자가 설정한 횟수만큼 반복(Loop)하며 사이를 띄우는 마스터 함수
+async function startMultiPosting() {
+    console.log(`🚀 [다중 창 모드] 100% 음성 인식(STT) 전용 자동 포스팅을 시작합니다!`);
+    console.log(`🔄 [사이클 설정] 총 ${REPEAT_COUNT}바퀴 실행 / 1바퀴 종료 시 ${REPEAT_DELAY_MIN}분 대기\n`);
+
+    const screen = await getScreenResolution();
+
+    for (let cycle = 1; cycle <= REPEAT_COUNT; cycle++) {
+        console.log(`\n=================================================`);
+        console.log(` 🌀 [진행도: ${cycle} / ${REPEAT_COUNT}] 작업을 시작합니다!`);
+        console.log(`=================================================\n`);
+        
+        const success = await runPostingCycle(cycle, screen);
+        
+        if (!success) {
+            console.log("\n🛑 반복 작업을 강제 중단합니다.");
+            break; 
+        }
+
+        if (cycle < REPEAT_COUNT) {
+            console.log(`\n🎉 [사이클 ${cycle}] 완료! 다음 실행을 위해 ${REPEAT_DELAY_MIN}분 동안 대기(휴식)합니다...`);
+            // 입력하신 REPEAT_DELAY_MIN 만큼 대기합니다. (밀리초 변환)
+            await new Promise(res => setTimeout(res, REPEAT_DELAY_MIN * 60 * 1000));
+        }
+    }
+    
+    console.log("\n🎊 설정된 모든 반복 작업이 완전히 끝났습니다! 오늘 작업 끝!");
 }
 
 startMultiPosting();
