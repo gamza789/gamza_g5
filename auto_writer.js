@@ -22,7 +22,7 @@ const randomWait = (minSec, maxSec) => {
     return new Promise(resolve => setTimeout(resolve, ms));
 };
 
-// 💡 일반 에러 로그 (log.txt) - 로그 프리픽스를 그대로 받아서 저장하도록 수정
+// 💡 일반 에러 로그 (log.txt)
 async function logError(logPrefix, errorMessage) {
     const timeStr = new Date().toLocaleString();
     const logData = `[${timeStr}] ${logPrefix} ❌ 에러: ${errorMessage}\n`;
@@ -34,30 +34,33 @@ async function logErrorUrl(targetUrl) {
     try { await fs.appendFile(path.join(__dirname, 'url_error.txt'), targetUrl + '\n', 'utf8'); } catch (e) {}
 }
 
+// 💡 [안전장치 1] URL 파일이 없으면 봇 실행 차단
 async function loadTargetUrls() {
     try {
         const filePath = path.join(__dirname, 'url.txt');
         const data = await fs.readFile(filePath, 'utf8');
         return data.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0 && !line.startsWith('#')); 
     } catch (e) {
-        return ['http://id-a.co.kr/bbs/write.php?bo_table=free'];
+        console.log("\n===========================================================");
+        console.log("🚨 [긴급 공지] 'url.txt' 파일을 찾을 수 없거나 읽기 오류가 발생했습니다!");
+        console.log("🚨 폴더 안에 url.txt 파일이 제대로 있는지 확인해 주세요.");
+        console.log("===========================================================\n");
+        return []; 
     }
 }
 // ==============================================================
 
-// 🤖 [핵심 음성 캡차 엔진] - 태그형/버튼형 모두 지원하는 하이브리드 모드
+// 🤖 [핵심 음성 캡차 엔진] - 태그형/버튼형 하이브리드
 async function solveAudioCaptcha(page, logPrefix) {
     try {
         let audioBase64 = "";
 
-        // 💡 1. 화면에 대놓고 <audio> 태그가 있는지 스캔합니다.
         const audioTagSrc = await page.evaluate(() => {
             const audioEl = document.querySelector('audio#captcha_audio');
             return audioEl ? audioEl.src : null;
         });
 
         if (audioTagSrc) {
-            // 💡 [패턴 A] 오디오 태그가 있는 사이트 (주소에서 직접 추출)
             console.log(`${logPrefix} 🎵 오디오 태그 발견! 직접 파일을 추출합니다.`);
             
             audioBase64 = await page.evaluate(async (url) => {
@@ -65,13 +68,12 @@ async function solveAudioCaptcha(page, logPrefix) {
                 const blob = await res.blob();
                 return new Promise((resolve) => {
                     const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result.split(',')[1]); // Base64만 추출
+                    reader.onloadend = () => resolve(reader.result.split(',')[1]); 
                     reader.readAsDataURL(blob);
                 });
             }, audioTagSrc);
 
         } else {
-            // 💡 [패턴 B] 기존 방식 (스피커 버튼을 누르고 네트워크 낚아채기)
             const audioResponsePromise = new Promise((resolve) => {
                 const onResponse = async (response) => {
                     const url = response.url();
@@ -101,11 +103,9 @@ async function solveAudioCaptcha(page, logPrefix) {
             audioBase64 = audioBuffer.toString('base64');
         }
 
-        // 💡 2. 사람처럼 오디오가 끝까지 재생될 때까지 6초간 느긋하게 기다립니다.
         console.log(`${logPrefix} ⏳ (사람처럼 연기) 오디오가 끝까지 재생될 때까지 느긋하게 기다립니다...`);
         await randomWait(6, 6);
 
-        // 💡 3. 다 듣고 나서야 파이썬 서버로 분석을 요청합니다.
         console.log(`${logPrefix} 📨 파이썬 STT 서버로 음성 분석 요청 전송 중...`);
         const response = await fetch('http://127.0.0.1:5000/solve_audio', {
             method: 'POST',
@@ -160,11 +160,9 @@ function getWindowBounds(index, screenWidth, screenHeight, totalCount) {
     }
 }
 
-// 💡 [핵심 변경] 몇 번째 URL인지 파악하기 위해 urlIndex 파라미터를 추가했습니다.
 async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex) {
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
     
-    // 💡 로그 프리픽스에 url 순번을 추가합니다. (예: [창 #1 url_5])
     const logPrefix = `[창 #${workerId + 1} url_${urlIndex}]`;
 
     const browser = await puppeteer.launch({
@@ -199,6 +197,8 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
 
     const pickedTitleKey = titleKeys[Math.floor(Math.random() * titleKeys.length)];
     const pickedContentKey = contentKeys[Math.floor(Math.random() * contentKeys.length)];
+    
+    // 이 단계까지 왔다면 키가 정상적이지만 혹시 몰라 대비합니다.
     const titleToInput = contentData[pickedTitleKey] ? String(contentData[pickedTitleKey]) : "제목 누락";
     const contentToInput = contentData[pickedContentKey] ? String(contentData[pickedContentKey]) : "내용 누락";
     
@@ -322,10 +322,13 @@ async function startMultiPosting() {
 
     try {
         const targetUrls = await loadTargetUrls();
+        if (targetUrls.length === 0) {
+            console.log("❌ 더 이상 진행할 수 없어 프로그램을 안전하게 종료합니다.");
+            return;
+        }
+
         console.log(`📋 총 ${targetUrls.length}개의 타겟 URL을 불러왔습니다.`);
         
-        if (targetUrls.length === 0) return console.log("❌ url.txt에 유효한 주소가 없습니다.");
-
         const screen = await getScreenResolution();
         
         let contentQueue = []; 
@@ -342,7 +345,26 @@ async function startMultiPosting() {
                         isFetchingContent = true;
                         console.log(`\n🔄 [창 #${workerId + 1}] API 서버에서 콘텐츠 추가 요청 중...`);
                         const newContents = await generateContent(API_FORMAT);
+                        
                         if (newContents && newContents.length > 0) {
+                            
+                            // 💡 [안전장치 2] 설정한 글감 키값(SELECTED_TITLE/CONTENT)이 진짜로 데이터에 있는지 검증
+                            const sampleData = newContents[0];
+                            const hasValidTitle = titleKeys.some(k => sampleData[k] !== undefined);
+                            const hasValidContent = contentKeys.some(k => sampleData[k] !== undefined);
+
+                            if (!hasValidTitle || !hasValidContent) {
+                                console.log("\n===========================================================");
+                                console.log("🚨 [긴급 공지] 제목(SELECTED_TITLE) 또는 내용(SELECTED_CONTENT) 설정이 잘못되었습니다!");
+                                console.log(`🚨 API가 전달한 데이터 안에 사장님이 설정하신 이름표가 존재하지 않습니다.`);
+                                console.log(`👉 현재 설정된 제목: [ ${SELECTED_TITLE} ]`);
+                                console.log(`👉 현재 설정된 내용: [ ${SELECTED_CONTENT} ]`);
+                                console.log(`🚨 오타가 없는지 확인하시고 다시 실행해 주세요.`);
+                                console.log("===========================================================\n");
+                                console.log("❌ 잘못된 글이 등록되는 것을 막기 위해 모든 작업을 즉시 종료합니다.");
+                                process.exit(1); // 💡 여기서 즉시 봇 프로그램 전체를 강제 종료합니다.
+                            }
+                            
                             contentQueue.push(...newContents); 
                             console.log(`✅ 글감 충전 완료! (현재 남은 개수: ${contentQueue.length}개)\n`);
                         }
@@ -354,7 +376,6 @@ async function startMultiPosting() {
 
                 const contentData = contentQueue.shift(); 
                 
-                // 💡 [핵심 변경] 순번(myJobIndex + 1)을 넘겨서 url_1, url_2 처럼 번호를 매깁니다.
                 await runSingleBrowser(workerId, targetUrl, contentData, screen.width, screen.height, RUN_COUNT, myJobIndex + 1);
                 
                 await randomWait(2, 4);
