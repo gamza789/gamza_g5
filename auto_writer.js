@@ -22,10 +22,10 @@ const randomWait = (minSec, maxSec) => {
     return new Promise(resolve => setTimeout(resolve, ms));
 };
 
-// 💡 일반 에러 로그 (log.txt)
-async function logError(workerId, errorMessage) {
+// 💡 일반 에러 로그 (log.txt) - 로그 프리픽스를 그대로 받아서 저장하도록 수정
+async function logError(logPrefix, errorMessage) {
     const timeStr = new Date().toLocaleString();
-    const logData = `[${timeStr}] [창 #${workerId + 1}] ❌ 에러: ${errorMessage}\n`;
+    const logData = `[${timeStr}] ${logPrefix} ❌ 에러: ${errorMessage}\n`;
     try { await fs.appendFile(path.join(__dirname, 'log.txt'), logData, 'utf8'); } catch (e) {}
 }
 
@@ -160,9 +160,12 @@ function getWindowBounds(index, screenWidth, screenHeight, totalCount) {
     }
 }
 
-async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount) {
+// 💡 [핵심 변경] 몇 번째 URL인지 파악하기 위해 urlIndex 파라미터를 추가했습니다.
+async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex) {
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
-    const logPrefix = `[창 #${workerId + 1}]`;
+    
+    // 💡 로그 프리픽스에 url 순번을 추가합니다. (예: [창 #1 url_5])
+    const logPrefix = `[창 #${workerId + 1} url_${urlIndex}]`;
 
     const browser = await puppeteer.launch({
         headless: false,
@@ -219,7 +222,6 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             throw new Error("글쓰기 권한 없음"); 
         }
 
-        // 💡 [핵심 추가] #captcha_audio 가 있는지도 검사 대상에 포함
         const hasCaptcha = await page.$('#captcha_img, #kcaptcha_image, #captcha_mp3, #captcha_audio');
         if (!hasCaptcha) {
             console.log(`${logPrefix} ⚠️ [빠른 손절] 캡차가 아예 없습니다! (차단 의심)`);
@@ -306,7 +308,7 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
 
     } catch (error) {
         console.error(`${logPrefix} ❌ 작업 중단 (즉시 손절):`, error.message);
-        await logError(workerId, error.message);
+        await logError(logPrefix, error.message);
     } finally {
         const closeDelay = Math.floor(Math.random() * (10 - 5 + 1)) + 5;
         console.log(`${logPrefix} 🛑 작업 종료 후 ${closeDelay}초 뒤 창을 닫습니다.`);
@@ -351,7 +353,9 @@ async function startMultiPosting() {
                 }
 
                 const contentData = contentQueue.shift(); 
-                await runSingleBrowser(workerId, targetUrl, contentData, screen.width, screen.height, RUN_COUNT);
+                
+                // 💡 [핵심 변경] 순번(myJobIndex + 1)을 넘겨서 url_1, url_2 처럼 번호를 매깁니다.
+                await runSingleBrowser(workerId, targetUrl, contentData, screen.width, screen.height, RUN_COUNT, myJobIndex + 1);
                 
                 await randomWait(2, 4);
             }
