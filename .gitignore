@@ -3,7 +3,7 @@
 # =========================
 node_modules/
 npm-debug.log
-package-lock.json
+*.json
 
 # =========================
 # 2. Python (음성 인식 서버 관련)
