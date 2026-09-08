@@ -4,10 +4,41 @@ const puppeteer = require('puppeteer');
 const { generateContent } = require('./generate'); 
 
 // ==============================================================
-// ⚙️ [설정칸] 자동 포스팅 설정 및 다중 창 모드 세팅
+// ⚙️ [설정칸] 터미널 명령어 다중 계정 자동화 세팅
 // ==============================================================
-const SELECTED_TITLE = "title_via_cia";      
-const SELECTED_CONTENT = "content_via_cia";  
+// 1. 터미널에서 입력한 아이디(예: vip_via)를 낚아챕니다.
+const accountId = process.argv[2];
+
+if (!accountId) {
+    console.log("\n===========================================================");
+    console.log("🚨 [실행 오류] 명령어 뒤에 실행할 아이디를 적지 않으셨습니다!");
+    console.log("👉 사용법: node auto_writer.js [아이디]");
+    console.log("👉 예 시 : node auto_writer.js vip_via");
+    console.log("===========================================================\n");
+    process.exit(1); // 아이디가 없으면 로봇 즉시 종료
+}
+
+// 2. 아이디별 제목/내용 셋팅 사전 (새로운 아이디가 생기면 여기에 추가하세요!)
+const accountSettings = {
+    "vip_via": { title: "title_via_cia", content: "content_via_cia" },
+    "vip_acemall": { title: "title", content: "content" },
+    "vip_nvid": { title: "title", content: "content" },
+    "vip_made": { title: "title", content: "content" },
+    "vip_": { title: "title", content: "content" }
+};
+
+// 3. 사전에 없는 이상한 아이디를 쳤을 때의 방어막
+if (!accountSettings[accountId]) {
+    console.log("\n===========================================================");
+    console.log(`🚨 [설정 오류] '${accountId}' 에 대한 제목/내용 세팅이 없습니다!`);
+    console.log(`💡 auto_writer.js 상단의 'accountSettings'에 이 아이디를 추가해 주세요.`);
+    console.log("===========================================================\n");
+    process.exit(1);
+}
+
+// 4. 입력받은 아이디에 맞춰 제목과 내용을 자동으로 세팅합니다.
+const SELECTED_TITLE = accountSettings[accountId].title;      
+const SELECTED_CONTENT = accountSettings[accountId].content;  
 const FIXED_PASSWORD = "Azaz0101!!"; 
 
 const titleKeys = SELECTED_TITLE.split(',').map(k => k.trim());
@@ -350,7 +381,9 @@ async function runPostingCycle(cycleNumber, screen) {
 
                         if (!hasValidTitle || !hasValidContent) {
                             console.log("\n===========================================================");
-                            console.log("🚨 [긴급 공지] 제목(SELECTED_TITLE) 또는 내용(SELECTED_CONTENT) 설정이 잘못되었습니다!");
+                            console.log(`🚨 [긴급 공지] 계정 '${accountId}'에 연결된 제목/내용 키 설정이 잘못되었습니다!`);
+                            console.log(`👉 설정된 제목 키: ${SELECTED_TITLE}`);
+                            console.log(`👉 설정된 내용 키: ${SELECTED_CONTENT}`);
                             console.log("===========================================================\n");
                             process.exit(1); 
                         }
@@ -384,6 +417,7 @@ async function runPostingCycle(cycleNumber, screen) {
 // 💡 마스터 실행 함수 (무제한 혹은 지정 횟수 반복)
 async function startMultiPosting() {
     console.log(`🚀 [다중 창 모드] 100% 음성 인식(STT) 전용 자동 포스팅을 시작합니다!`);
+    console.log(`👤 [현재 작동 계정] : ${accountId}`);
     
     if (REPEAT_COUNT === 0) {
         console.log(`🔄 [사이클 설정] 무제한 반복 모드 / 1바퀴 종료 시 ${REPEAT_DELAY_MIN}분 대기\n`);

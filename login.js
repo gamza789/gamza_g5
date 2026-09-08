@@ -1,6 +1,11 @@
 const url = "https://gamzavip.top/api/auth/login";
+
+// 터미널에서 입력한 3번째 단어(아이디)를 가져옵니다. 
+// 만약 안 적고 실행했을 때를 대비해 기본값("vip_via")도 넣어줍니다.
+const accountId = process.argv[2] || "vip_via";
+
 const payload = {
-    username: "vip_via",
+    username: accountId,
     password: "123456"
 };
 
