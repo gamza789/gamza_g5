@@ -19,7 +19,7 @@ const RUN_COUNT = 2;
 
 // 💡 [사이클 설정] 0: 무제한 반복 / 1 이상: 해당 횟수만큼 반복
 const REPEAT_COUNT = 0;         
-const REPEAT_DELAY_MIN = 10;    // 한 바퀴 다 돌고 다음 시작까지 쉴 시간 (분 단위)
+const REPEAT_DELAY_MIN = 60;    // 한 바퀴 다 돌고 다음 시작까지 쉴 시간 (분 단위)
 // ==============================================================
 
 const randomWait = (minSec, maxSec) => { 
@@ -162,13 +162,15 @@ function getWindowBounds(index, screenWidth, screenHeight, totalCount) {
 
 async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex, cycleNumber) {
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
-    const logPrefix = `[C${cycleNumber} 창 #${workerId + 1} url_${urlIndex}]`;
+    const logPrefix = `[_${cycleNumber} 창 #${workerId + 1} url_${urlIndex}]`;
 
     const browser = await puppeteer.launch({
         headless: false,
         defaultViewport: null,
         channel: 'chrome',
         args: [
+            `--window-size=${bounds.width},${bounds.height}`, 
+            `--window-position=${bounds.x},${bounds.y}`,     
             '--disable-dev-shm-usage',
             '--mute-audio' 
         ]
