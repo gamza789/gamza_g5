@@ -193,7 +193,7 @@ function getWindowBounds(index, screenWidth, screenHeight, totalCount) {
 
 async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex, cycleNumber) {
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
-    const logPrefix = `[_${cycleNumber} 창 #${workerId + 1} url_${urlIndex}]`;
+    const logPrefix = `[_창 #${workerId + 1} url_${urlIndex}]`;
 
     const browser = await puppeteer.launch({
         headless: false,
@@ -371,7 +371,7 @@ async function runPostingCycle(cycleNumber, screen) {
             while (contentQueue.length === 0) {
                 if (!isFetchingContent) {
                     isFetchingContent = true;
-                    console.log(`\n🔄 [C${cycleNumber} 창 #${workerId + 1}] API 서버에서 콘텐츠 추가 요청 중...`);
+                    console.log(`\n🔄 [창 #${workerId + 1}] API 서버에서 콘텐츠 추가 요청 중...`);
                     const newContents = await generateContent(API_FORMAT);
                     
                     if (newContents && newContents.length > 0) {
