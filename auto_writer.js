@@ -170,7 +170,6 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
         channel: 'chrome',
         args: [
             '--disable-dev-shm-usage',
-            '--disable-web-security',
             '--mute-audio' 
         ]
     });
