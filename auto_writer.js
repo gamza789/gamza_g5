@@ -24,7 +24,7 @@ const accountSettings = {
     "vip_acemall": { title: "title", content: "content" },
     "vip_nvid": { title: "title", content: "content" },
     "vip_made": { title: "title", content: "content" },
-    "vip_": { title: "title", content: "content" }
+    "vip_ace4555": { title: "title", content: "content" }
 };
 
 // 3. 사전에 없는 이상한 아이디를 쳤을 때의 방어막
