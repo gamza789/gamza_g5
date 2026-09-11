@@ -1,7 +1,8 @@
+// login.js
 const url = "https://gamzavip.top/api/auth/login";
 
-// 터미널에서 입력한 3번째 단어(아이디)를 가져옵니다. 
-// 만약 안 적고 실행했을 때를 대비해 기본값("vip_via")도 넣어줍니다.
+// 터미널에서 입력한 3번째 단어(아이디)를 낚아챕니다.
+// 안 적고 실행했을 때를 대비해 기본값("vip_via")도 넣어줍니다.
 const accountId = process.argv[2] || "vip_via";
 
 const payload = {
@@ -11,23 +12,29 @@ const payload = {
 
 // 로그인을 수행하고 발급된 Token을 반환하는 함수입니다.
 async function executeLogin() {
-    console.log("로그인 시도 중...");
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-
-    const result = await response.json();
+    console.log(`\n🔑 [로그인] '${accountId}' 계정으로 로그인 시도 중...`);
     
-    // API 구조에 따라 토큰이 있는 위치가 다를 수 있습니다.
-    // 보통 result.data.token 형태이지만, 결과에 맞춰 수정이 필요할 수 있습니다.
-    if (result.code === 200 || result.code === 1) { 
-        console.log("✅ 로그인 성공!");
-        return result.data.token; // 토큰 값만 뽑아서 전달
-    } else {
-        console.error("❌ 로그인 실패:", result.message);
-        return null;
+    // 💡 [핵심 추가] 서버 지연이나 인터넷 끊김으로 인한 강제 종료를 막아주는 방어막
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        
+        if (result.code === 200 || result.code === 1) { 
+            console.log("✅ 로그인 성공! (토큰 발급 완료)");
+            return result.data.token; 
+        } else {
+            console.error("❌ 로그인 실패 (아이디나 비번 확인):", result.message);
+            return null;
+        }
+    } catch (error) {
+        // 서버가 뻗어도 봇이 죽지 않고 에러 메시지만 남긴 채 안전하게 넘깁니다.
+        console.error(`❌ 로그인 서버 접속 실패 (인터넷 문제 혹은 서버 지연): ${error.message}`);
+        return null; 
     }
 }
 

@@ -2,22 +2,22 @@ const { executeLogin } = require('./login');
 const fs = require('fs').promises; 
 
 // [수정 가능 1] 💡 카테고리 ID 변경
-// 다른 카테고리의 링크를 가져오고 싶다면 34 숫자를 변경하세요.
 const categoryId = 34;
 
 async function getAllLinksAndSave() {
-    console.log(`\n--- [${new Date().toLocaleString()}] 링크 수집 시작 ---`);
+    console.log(`\n--- [${new Date().toLocaleString()}] 🌐 링크 수집 시작 ---`);
+    
+    // 💡 executeLogin()이 알아서 터미널에 입력한 아이디로 로그인을 시도합니다.
     const token = await executeLogin();
-    if (!token) return console.log("로그인 실패");
+    if (!token) return console.log("❌ 로그인에 실패하여 링크 수집을 취소합니다.");
 
     let page = 1;
     let allUrls = []; 
 
-    console.log(`카테고리 ID ${categoryId}의 전체 링크 목록을 수집합니다...`);
+    console.log(`📂 카테고리 ID [${categoryId}]의 전체 링크 목록을 수집합니다...`);
 
     while (true) {
-        // [수정 가능 2] 💡 한 페이지당 가져올 갯수 (limit=50) 변경
-        // 한 번에 너무 많은 데이터를 불러오면 서버에서 차단할 수 있으므로 50~100 사이를 권장합니다.
+        // [수정 가능 2] 💡 한 페이지당 가져올 갯수 (limit=50)
         const listUrl = `https://gamzavip.top/api/links?link_category_id=${categoryId}&marked=1&limit=50&page=${page}`;
         
         try {
@@ -37,7 +37,7 @@ async function getAllLinksAndSave() {
                 }
 
                 if (items.length === 0) {
-                    break;
+                    break; // 더 이상 가져올 주소가 없으면 반복 멈춤
                 }
 
                 const pageUrls = items.map(item => item.url || item.link || item.link_url).filter(Boolean);
@@ -50,7 +50,7 @@ async function getAllLinksAndSave() {
                 break;
             }
         } catch (error) {
-            console.error("오류 발생:", error);
+            console.error("⚠️ 통신 오류 발생 (서버 지연 등):", error.message);
             break;
         }
     }
@@ -58,26 +58,21 @@ async function getAllLinksAndSave() {
     if (allUrls.length > 0) {
         const textToSave = allUrls.join('\n');
         
-        // [수정 가능 3] 💡 저장될 파일 이름 변경
-        // 'url.txt' 대신 다른 이름으로 저장하고 싶다면 아래 문자열을 변경하세요.
+        // [수정 가능 3] 💡 저장될 파일 이름
         await fs.writeFile('url.txt', textToSave, 'utf8');
-        
-        console.log(`✅ 총 ${allUrls.length}개의 URL을 url.txt에 성공적으로 덮어씌워 저장했습니다!`);
+        console.log(`✅ 총 ${allUrls.length}개의 URL을 'url.txt'에 성공적으로 덮어씌웠습니다!`);
     } else {
         console.log("❌ 저장할 URL을 찾지 못했습니다.");
     }
 }
 
-// 1. 프로그램을 실행하자마자 즉시 1번 실행합니다.
+// 1. 프로그램 실행 즉시 1번 가동
 getAllLinksAndSave();
 
-// [수정 가능 4] 💡 자동 갱신 시간 변경
-// 밀리초(ms) 단위로 계산됩니다. 현재는 1시간(60분 * 60초 * 1000)으로 설정되어 있습니다.
-// 예: 30분마다 = 30 * 60 * 1000
-// 예: 12시간마다 = 12 * 60 * 60 * 1000
+// [수정 가능 4] 💡 자동 갱신 시간 (현재 24시간)
 const REPEAT_TIME = 24 * 60 * 60 * 1000; 
 
-// 2. 설정한 시간마다 자동으로 반복 실행합니다.
+// 2. 설정 시간마다 무한 반복
 setInterval(getAllLinksAndSave, REPEAT_TIME);
 
-console.log("⏳ 자동 수집기가 켜졌습니다. (종료하려면 터미널에서 Ctrl+C를 누르세요)");
+console.log(`⏳ URL 자동 수집기가 켜졌습니다. (종료: Ctrl+C)`);
