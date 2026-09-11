@@ -6,7 +6,6 @@ const { generateContent } = require('./generate');
 // ==============================================================
 // ⚙️ [설정칸] 터미널 명령어 다중 계정 자동화 세팅
 // ==============================================================
-// 1. 터미널에서 입력한 아이디(예: vip_via)를 낚아챕니다.
 const accountId = process.argv[2];
 
 if (!accountId) {
@@ -15,19 +14,15 @@ if (!accountId) {
     console.log("👉 사용법: node auto_writer.js [아이디]");
     console.log("👉 예 시 : node auto_writer.js vip_via");
     console.log("===========================================================\n");
-    process.exit(1); // 아이디가 없으면 로봇 즉시 종료
+    process.exit(1); 
 }
 
-// 2. 아이디별 제목/내용 셋팅 사전 (새로운 아이디가 생기면 여기에 추가하세요!)
 const accountSettings = {
     "vip_via": { title: "title_via_cia", content: "content_via_cia" },
-    "vip_acemall": { title: "title", content: "content" },
-    "vip_nvid": { title: "title", content: "content" },
-    "vip_made": { title: "title", content: "content" },
-    "vip_ace4555": { title: "title", content: "content" }
+    "vip_acemall": { title: "title_acemall_cia", content: "content_acemall_cia" },
+    "vip_nvid": { title: "title_nvid_cia", content: "content_nvid_cia" }
 };
 
-// 3. 사전에 없는 이상한 아이디를 쳤을 때의 방어막
 if (!accountSettings[accountId]) {
     console.log("\n===========================================================");
     console.log(`🚨 [설정 오류] '${accountId}' 에 대한 제목/내용 세팅이 없습니다!`);
@@ -36,7 +31,6 @@ if (!accountSettings[accountId]) {
     process.exit(1);
 }
 
-// 4. 입력받은 아이디에 맞춰 제목과 내용을 자동으로 세팅합니다.
 const SELECTED_TITLE = accountSettings[accountId].title;      
 const SELECTED_CONTENT = accountSettings[accountId].content;  
 const FIXED_PASSWORD = "Azaz0101!!"; 
@@ -45,12 +39,10 @@ const titleKeys = SELECTED_TITLE.split(',').map(k => k.trim());
 const contentKeys = SELECTED_CONTENT.split(',').map(k => k.trim());
 const API_FORMAT = [...new Set([...titleKeys, ...contentKeys, 'url'])].join(',');
 
-// 창 개수 설정 (2개: 좌우 / 4개: 2x2 격자)
 const RUN_COUNT = 2; 
 
-// 💡 [사이클 설정] 0: 무제한 반복 / 1 이상: 해당 횟수만큼 반복
 const REPEAT_COUNT = 0;         
-const REPEAT_DELAY_MIN = 10;    // 한 바퀴 다 돌고 다음 시작까지 쉴 시간 (분 단위)
+const REPEAT_DELAY_MIN = 60;    
 // ==============================================================
 
 const randomWait = (minSec, maxSec) => { 
@@ -193,7 +185,7 @@ function getWindowBounds(index, screenWidth, screenHeight, totalCount) {
 
 async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex, cycleNumber) {
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
-    const logPrefix = `[_창 #${workerId + 1} url_${urlIndex}]`;
+    const logPrefix = `[C${cycleNumber} 창 #${workerId + 1} url_${urlIndex}]`;
 
     const browser = await puppeteer.launch({
         headless: false,
@@ -203,6 +195,7 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             `--window-size=${bounds.width},${bounds.height}`, 
             `--window-position=${bounds.x},${bounds.y}`,     
             '--disable-dev-shm-usage',
+            '--disable-web-security',
             '--mute-audio' 
         ]
     });
@@ -371,26 +364,34 @@ async function runPostingCycle(cycleNumber, screen) {
             while (contentQueue.length === 0) {
                 if (!isFetchingContent) {
                     isFetchingContent = true;
-                    console.log(`\n🔄 [창 #${workerId + 1}] API 서버에서 콘텐츠 추가 요청 중...`);
-                    const newContents = await generateContent(API_FORMAT);
+                    console.log(`\n🔄 [C${cycleNumber} 창 #${workerId + 1}] API 서버에서 콘텐츠 추가 요청 중...`);
                     
-                    if (newContents && newContents.length > 0) {
-                        const sampleData = newContents[0];
-                        const hasValidTitle = titleKeys.some(k => sampleData[k] !== undefined);
-                        const hasValidContent = contentKeys.some(k => sampleData[k] !== undefined);
-
-                        if (!hasValidTitle || !hasValidContent) {
-                            console.log("\n===========================================================");
-                            console.log(`🚨 [긴급 공지] 계정 '${accountId}'에 연결된 제목/내용 키 설정이 잘못되었습니다!`);
-                            console.log(`👉 설정된 제목 키: ${SELECTED_TITLE}`);
-                            console.log(`👉 설정된 내용 키: ${SELECTED_CONTENT}`);
-                            console.log("===========================================================\n");
-                            process.exit(1); 
-                        }
+                    // 💡 [핵심 방어막] try-catch로 감싸서 서버가 뻗어도 봇이 죽지 않게 보호합니다.
+                    try {
+                        const newContents = await generateContent(API_FORMAT);
                         
-                        contentQueue.push(...newContents); 
-                        console.log(`✅ 글감 충전 완료! (현재 남은 개수: ${contentQueue.length}개)\n`);
+                        if (newContents && newContents.length > 0) {
+                            const sampleData = newContents[0];
+                            const hasValidTitle = titleKeys.some(k => sampleData[k] !== undefined);
+                            const hasValidContent = contentKeys.some(k => sampleData[k] !== undefined);
+
+                            if (!hasValidTitle || !hasValidContent) {
+                                console.log("\n===========================================================");
+                                console.log(`🚨 [긴급 공지] 계정 '${accountId}'에 연결된 제목/내용 키 설정이 잘못되었습니다!`);
+                                console.log(`👉 설정된 제목 키: ${SELECTED_TITLE}`);
+                                console.log(`👉 설정된 내용 키: ${SELECTED_CONTENT}`);
+                                console.log("===========================================================\n");
+                                process.exit(1); 
+                            }
+                            
+                            contentQueue.push(...newContents); 
+                            console.log(`✅ 글감 충전 완료! (현재 남은 개수: ${contentQueue.length}개)\n`);
+                        }
+                    } catch (error) {
+                        console.log(`\n⚠️ API 서버(gamzavip.top) 연결 지연! 10초 대기 후 다시 글감을 요청합니다... (${error.message})`);
+                        await randomWait(10, 10);
                     }
+                    
                     isFetchingContent = false;
                 } else {
                     await randomWait(1, 1); 
