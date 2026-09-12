@@ -8,7 +8,7 @@ start "음성인식 STT 서버" cmd /k "py audio_server.py"
 
 :: 2. 24시간 간격 URL 수집기 켜기 (새 창)
 :: 💡 기본 구동 계정을 vip_via 로 설정했습니다. 필요시 변경하세요.
-start "URL 수집기 (list_all.js)" cmd /k "node list_all.js vip_via"
+start "URL 수집기 (list_all.js)" cmd /k "node list.js"
 
 :: 3. 3시간 간격 임시파일+휴지통 청소기 켜기 (새 창)
 start "시스템 청소기 (cleaner.js)" cmd /k "node cleaner.js"
