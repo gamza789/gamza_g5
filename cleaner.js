@@ -58,8 +58,14 @@ async function cleanTempFolder() {
 // 1. 실행 즉시 1회 청소
 cleanTempFolder();
 
-// 2. 3시간마다 반복
-const CLEAN_TIME = 3 * 60 * 60 * 1000; 
+// [수정 가능] 💡 자동 청소 시간 설정 (원하는 '시간' 숫자만 적으세요!)
+const CLEAN_HOURS = 6; 
+
+// 컴퓨터가 이해할 수 있도록 시간(Hours)을 밀리초(ms)로 변환
+const CLEAN_TIME = CLEAN_HOURS * 60 * 60 * 1000; 
+
+// 2. 설정 시간마다 무한 반복
 setInterval(cleanTempFolder, CLEAN_TIME);
 
-console.log("🧹 3시간 간격 임시파일 + 휴지통 청소기가 켜졌습니다. (종료: Ctrl+C)");
+// 출력할 때는 우리가 위에서 적은 CLEAN_HOURS을 그대로 가져와서 보여줍니다.
+console.log(`🧹 ${CLEAN_HOURS}시간 간격 임시파일 + 휴지통 청소기가 켜졌습니다. (종료: Ctrl+C)`);
