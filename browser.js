@@ -61,7 +61,7 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             '--disable-dev-shm-usage',
             '--disable-gpu',
             //브라우저의 엄격한 웹 보안 정책(CORS 등)을 강제로 무장 해제합니다.
-            //'--disable-web-security',
+            '--disable-web-security',
             '--mute-audio',
             // 💡 [사장님 추가 옵션] 디스크 캐시 생성 원천 차단 (SSD 보호 및 속도 향상)
             '--disk-cache-size=1',
