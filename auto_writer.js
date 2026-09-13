@@ -3,11 +3,11 @@ const { generateContent } = require('./generate');
 const accountSettings = require('./accounts'); 
 const { getScreenResolution, runSingleBrowser } = require('./browser'); 
 
-// 📦 [핵심] 우리가 분리해둔 파일 읽기 전용 부품들을 가져옵니다.
+// 📦 분리해둔 파일 읽기 전용 부품들
 const { loadNormalJobs } = require('./reader_normal');
 const { loadLoginJobs } = require('./reader_login');
 
-// 💡 [새로 추가된 부품] 다른 자바스크립트 파일을 터미널처럼 실행시켜주는 부품!
+// 💡 다른 자바스크립트 파일을 터미널처럼 실행시켜주는 부품!
 const { exec } = require('child_process');
 const util = require('util');
 const execAsync = util.promisify(exec);
@@ -40,7 +40,6 @@ const randomWait = (minSec, maxSec) => new Promise(resolve => setTimeout(resolve
 
 // 🔄 1바퀴 실행 사령관
 async function runPostingCycle(cycleNumber, screen) {
-    // 💡 [핵심 통합] 부품 2개에게 일을 시키고, 가져온 결과를 하나의 작업 목록으로 싹 합칩니다.
     const normalJobs = await loadNormalJobs();
     const loginJobs = await loadLoginJobs();
     const targetJobs = [...normalJobs, ...loginJobs]; 
@@ -111,30 +110,31 @@ async function startMultiPosting() {
         console.log(` 🌀 [진행도: ${cycle}번째 바퀴] 작업을 시작합니다!`);
         console.log(`=================================================\n`);
         
-        const success = await runPostingCycle(cycle, screen);
-        if (!success) { console.log("\n🛑 반복 작업을 중단합니다."); break; }
-
         // =========================================================
-        // 💡 [핵심 추가] 한 바퀴 끝난 직후! 청소기 & 수집기 가동
+        // 💡 [핵심 변경] 글쓰기 '시작 전(맨 처음)'에 청소 및 주소 최신화 가동!
         // =========================================================
-        console.log(`\n=================================================`);
-        console.log(` 🛠️ [사이클 후속 작업] 청소 및 다음 바퀴 주소 갱신 시작...`);
+        console.log(` 🛠️ [사전 준비 작업] 청소 및 최신 주소 수집 시작...`);
         try {
             console.log(` 🧹 1. cleaner.js 실행 중...`);
             await execAsync('node cleaner.js'); 
-            console.log(` ✅ 임시파일 및 휴지통 청소 완료!`);
+            console.log(` ✅ 임시파일 및 시스템 청소 완료!`);
 
-            console.log(` 🌐 2. list.js 실행 중 (새로운 주소 추출 중)...`);
+            console.log(` 🌐 2. list.js 실행 중 (최신 주소 추출 중)...`);
             await execAsync('node list.js');    
-            console.log(` ✅ url.txt 및 url_login.txt 갱신 완료!`);
+            console.log(` ✅ url.txt 및 url_login.txt 최신화 완료!`);
         } catch (error) {
-            console.log(` ❌ 후속 작업 중 오류 발생 (무시하고 계속 진행): ${error.message}`);
+            console.log(` ❌ 사전 작업 중 오류 발생 (무시하고 계속 진행): ${error.message}`);
         }
         console.log(`=================================================\n`);
         // =========================================================
+        
+        // 청소와 주소 갱신이 끝나면, 가장 최신 주소를 불러와서 글쓰기 본 작업 시작!
+        const success = await runPostingCycle(cycle, screen);
+        if (!success) { console.log("\n🛑 반복 작업을 중단합니다."); break; }
 
+        // 본 작업(글쓰기)까지 모두 끝나면 휴식!
         if (REPEAT_COUNT === 0 || cycle < REPEAT_COUNT) {
-            console.log(`\n🎉 [사이클 ${cycle}] 완료! 다음 실행을 위해 ${REPEAT_DELAY_MIN}분 대기(휴식)합니다...`);
+            console.log(`\n🎉 [사이클 ${cycle}] 글쓰기 완료! 다음 사이클 시작까지 ${REPEAT_DELAY_MIN}분 대기(휴식)합니다...`);
             await new Promise(res => setTimeout(res, REPEAT_DELAY_MIN * 60 * 1000));
         }
         cycle++; 
