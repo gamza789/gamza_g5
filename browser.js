@@ -49,20 +49,23 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
     const logPrefix = `[C${cycleNumber} 창 #${workerId + 1} url_${urlIndex}]`;
 
-    const browser = await puppeteer.launch({
+   const browser = await puppeteer.launch({
         headless: false,
         defaultViewport: null,
         channel: 'chrome',
         args: [
             `--window-size=${bounds.width},${bounds.height}`, 
             `--window-position=${bounds.x},${bounds.y}`,     
-            // 💡 [핵심 추가] 크롬 뻗음(Crash '-36863')을 방지하는 메모리 최적화 옵션들
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-web-security',
-            '--mute-audio' 
+            '--mute-audio',
+            // 💡 [사장님 추가 옵션] 디스크 캐시 생성 원천 차단 (SSD 보호 및 속도 향상)
+            '--disk-cache-size=1',
+            '--media-cache-size=1',
+            '--disable-application-cache'
         ]
     });
 
