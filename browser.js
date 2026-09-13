@@ -43,7 +43,8 @@ function getWindowBounds(index, screenWidth, screenHeight, totalCount) {
 
 async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex, cycleNumber, config) {
     
-    const { titleKeys, contentKeys, FIXED_PASSWORD } = config;
+    // 💡 메인 봇에서 넘겨받은 설정값 (로그인 모드인지 여부 포함)
+    const { titleKeys, contentKeys, FIXED_PASSWORD, isLoginMode, loginInfo } = config;
 
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
     const logPrefix = `[C${cycleNumber} 창 #${workerId + 1} url_${urlIndex}]`;
@@ -55,7 +56,11 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
         args: [
             `--window-size=${bounds.width},${bounds.height}`, 
             `--window-position=${bounds.x},${bounds.y}`,     
+            // 💡 [핵심 추가] 크롬 뻗음(Crash '-36863')을 방지하는 메모리 최적화 옵션들
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
+            '--disable-gpu',
             '--disable-web-security',
             '--mute-audio' 
         ]
@@ -66,8 +71,8 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
     let dialogMessage = '';
     page.on('dialog', async dialog => {
         dialogMessage = dialog.message();
-        console.log(`${logPrefix} 🔔 팝업: ${dialogMessage}`);
-        await dialog.accept();
+        console.log(`${logPrefix} 🔔 팝업 감지: ${dialogMessage}`);
+        await dialog.accept().catch(()=>{}); // 팝업은 무조건 '확인'을 눌러 닫습니다.
     });
 
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -92,14 +97,48 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
     }
 
     try {
-        console.log(`${logPrefix} 접속 중: ${targetUrl}`);
-        
-        // 1차: 네트워크 통신이 끝날 때까지 대기
-        await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+        // =========================================================
+        // 💡 [핵심 변경] 로그인 모드 여부에 따라 진입 방식을 완벽하게 나눕니다!
+        // =========================================================
+        if (isLoginMode && loginInfo) {
+            const { loginUrl, loginId, loginPw } = loginInfo;
+            
+            console.log(`${logPrefix} 🔐 [회원 전용] 로그인 절차를 시작합니다.`);
+            
+            // 1. '회원만 이용 가능합니다' 팝업을 띄워서 끄기 위해 글쓰기 주소로 먼저 한번 찔러봅니다.
+            await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 15000 }).catch(()=>{});
+            await randomWait(1, 2);
+
+            // 2. 로그인 페이지로 이동!
+            console.log(`${logPrefix} 🔑 로그인 페이지 진입 중: ${loginUrl}`);
+            await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 15000 }).catch(()=>{});
+            await randomWait(1, 2);
+
+            // 3. 아이디 / 비밀번호 타이핑
+            console.log(`${logPrefix} ⌨️ 아이디와 비밀번호를 입력합니다...`);
+            await page.type('input[name="mb_id"], #login_id', loginId, { delay: 50 }).catch(()=>{});
+            await page.type('input[name="mb_password"], #login_pw', loginPw, { delay: 50 }).catch(()=>{});
+            
+            // 4. 로그인 버튼 클릭 후 화면이 넘어갈 때까지 대기
+            await Promise.all([
+                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(()=>{}),
+                page.click('button.btn_submit, button[type="submit"]').catch(()=>{})
+            ]);
+            console.log(`${logPrefix} 🔓 로그인 성공! 본 목적지(글쓰기 폼)로 이동합니다.`);
+
+            // 5. 다시 본래 글쓰기 폼(targetUrl) 주소로 이동!
+            await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+            
+        } else {
+            // 🟢 일반 모드일 경우: 다이렉트로 바로 글쓰기 폼에 접속!
+            console.log(`${logPrefix} 🌐 [일반 모드] 접속 중: ${targetUrl}`);
+            await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+        }
+        // =========================================================
         
         const hasWriteForm = await page.$('#wr_subject');
         if (!hasWriteForm) {
-            console.log(`${logPrefix} ⚠️ [빠른 손절] 글쓰기 폼이 없습니다! (로그인 필요 혹은 차단)`);
+            console.log(`${logPrefix} ⚠️ [빠른 손절] 글쓰기 폼이 없습니다! (로그인 실패 혹은 차단)`);
             await logErrorUrl(targetUrl); 
             throw new Error("글쓰기 권한 없음"); 
         }
@@ -110,18 +149,11 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             throw new Error("캡차 없음"); 
         }
 
-        // =========================================================
-        // 💡 [핵심 변경] 고정된 시간 대기(3~5초)를 삭제하고 스마트 대기로 변경!
-        // =========================================================
-        console.log(`${logPrefix} ⏳ [스마트 대기] 인터넷 속도에 맞춰 화면이 완벽히 뜰 때까지 추적합니다...`);
+        console.log(`${logPrefix} ⏳ [스마트 대기] 화면이 완벽히 뜰 때까지 추적합니다...`);
         
-        // 1. 제목칸 완벽 렌더링 대기 (최대 30초)
         await page.waitForSelector('#wr_subject', { visible: true, timeout: 30000 }).catch(() => {});
-        
-        // 2. 캡차(버튼이나 그림) 완벽 렌더링 대기
         await page.waitForSelector('#captcha_img, #kcaptcha_image, #captcha_mp3, #captcha_audio', { visible: true, timeout: 30000 }).catch(() => {});
         
-        // 3. 네이버 스마트에디터(혹은 일반 본문칸) 완벽 렌더링 대기
         const isSmartEditor = await page.$('iframe[src*="SmartEditor2Skin"]');
         if (isSmartEditor) {
             await page.waitForSelector('iframe[src*="SmartEditor2Skin"]', { visible: true, timeout: 30000 }).catch(() => {});
@@ -129,9 +161,8 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             await page.waitForSelector('#wr_content', { visible: true, timeout: 30000 }).catch(() => {});
         }
 
-        console.log(`${logPrefix} ✅ 로딩 100% 완료! (기계 티를 안 내기 위해 1초만 숨고르기 합니다)`);
-        await randomWait(1, 1); // 요소가 뜨자마자 빛의 속도로 입력하면 차단당할 수 있어 1초만 양념으로 넣습니다.
-        // =========================================================
+        console.log(`${logPrefix} ✅ 로딩 100% 완료!`);
+        await randomWait(1, 1); 
 
         console.log(`${logPrefix} ⚡ 글과 링크를 폼에 주입합니다...`);
         await page.evaluate((n, p, e, s, l1, l2) => {
@@ -176,8 +207,6 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             
             if (!isSolved) continue; 
 
-            // 💡 여기 있는 5~10초 대기는 로딩 대기가 아닙니다! 
-            // 글을 다 쓰고 광클하면 구글 캡차 방어막에 '매크로'로 걸리기 때문에 '사람이 글을 쭉 읽어보는 연기'를 하는 필수 시간입니다.
             console.log(`${logPrefix} ⏳ 캡차 입력 완료! 작성완료 버튼 클릭 전 5~10초 대기 중...`);
             await randomWait(5, 10);
             

@@ -1,3 +1,4 @@
+// list.js
 const { executeLogin } = require('./login'); 
 const fs = require('fs').promises; 
 
@@ -7,12 +8,12 @@ const categoryId = 34;
 async function getAllLinksAndSave() {
     console.log(`\n--- [${new Date().toLocaleString()}] 🌐 링크 수집 시작 ---`);
     
-    // 💡 executeLogin()이 알아서 터미널에 입력한 아이디로 로그인을 시도합니다.
     const token = await executeLogin();
     if (!token) return console.log("❌ 로그인에 실패하여 링크 수집을 취소합니다.");
 
     let page = 1;
-    let allUrls = []; 
+    let regularUrls = []; // 일반 URL 저장용
+    let loginUrls = [];   // 로그인 필요 URL 저장용
 
     console.log(`📂 카테고리 ID [${categoryId}]의 전체 링크 목록을 수집합니다...`);
 
@@ -37,12 +38,27 @@ async function getAllLinksAndSave() {
                 }
 
                 if (items.length === 0) {
-                    break; // 더 이상 가져올 주소가 없으면 반복 멈춤
+                    break; 
                 }
 
-                const pageUrls = items.map(item => item.url || item.link || item.link_url).filter(Boolean);
-                allUrls = allUrls.concat(pageUrls);
-                console.log(`[페이지 ${page}] ${pageUrls.length}개 가져옴 (누적: ${allUrls.length}개)`);
+                for (const item of items) {
+                    const url = item.url || item.link || item.link_url;
+                    if (!url) continue;
+
+                    const notes = item.notes || '';
+                    const notesParts = notes.split(',');
+
+                    // 1번 자리(인덱스 0)가 'login' 인지 확인
+                    if (notesParts[0].trim().toLowerCase() === 'login') {
+                        // 💡 [핵심 변경] loginUrls에 담을 때 "url|notes" 형태로 합쳐서 담습니다.
+                        loginUrls.push(`${url}|${notes}`);
+                    } else {
+                        // 일반 사이트는 그대로 url만 담습니다.
+                        regularUrls.push(url);
+                    }
+                }
+
+                console.log(`[페이지 ${page}] 데이터 처리 중... (누적 일반: ${regularUrls.length}개 / 로그인: ${loginUrls.length}개)`);
                 page++; 
 
             } else {
@@ -55,28 +71,29 @@ async function getAllLinksAndSave() {
         }
     }
 
-    if (allUrls.length > 0) {
-        const textToSave = allUrls.join('\n');
-        
-        // [수정 가능 3] 💡 저장될 파일 이름
-        await fs.writeFile('url.txt', textToSave, 'utf8');
-        console.log(`✅ 총 ${allUrls.length}개의 URL을 'url.txt'에 성공적으로 덮어씌웠습니다!`);
+    if (regularUrls.length > 0) {
+        await fs.writeFile('url.txt', regularUrls.join('\n'), 'utf8');
+        console.log(`✅ 일반 URL ${regularUrls.length}개 -> 'url.txt' 저장 완료!`);
     } else {
-        console.log("❌ 저장할 URL을 찾지 못했습니다.");
+        console.log("⚠️ 저장할 일반 URL이 없습니다.");
+    }
+
+    if (loginUrls.length > 0) {
+        await fs.writeFile('url_login.txt', loginUrls.join('\n'), 'utf8');
+        console.log(`✅ 로그인 필요 정보 ${loginUrls.length}개 -> 'url_login.txt' 저장 완료!`);
+    } else {
+        console.log("⚠️ 저장할 로그인 필요 URL이 없습니다.");
     }
 }
 
 // 1. 프로그램 실행 즉시 1번 가동
 getAllLinksAndSave();
 
-// [수정 가능 4] 💡 자동 갱신 시간 설정 (원하는 '시간' 숫자만 적으세요!)
+// [수정 가능 4] 💡 자동 갱신 시간 설정
 const REPEAT_HOURS = 24; 
-
-// 컴퓨터가 이해할 수 있도록 시간(Hours)을 밀리초(ms)로 자동 변환합니다.
 const REPEAT_TIME = REPEAT_HOURS * 60 * 60 * 1000; 
 
 // 2. 설정 시간마다 무한 반복
 setInterval(getAllLinksAndSave, REPEAT_TIME);
 
-// 출력할 때는 우리가 적어둔 REPEAT_HOURS(24)를 그대로 가져와서 보여줍니다.
 console.log(`⏳ ${REPEAT_HOURS}시간에 한 번씩... URL 자동 수집기가 켜졌습니다. (종료: Ctrl+C)`);
