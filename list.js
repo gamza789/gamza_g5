@@ -88,12 +88,3 @@ async function getAllLinksAndSave() {
 
 // 1. 프로그램 실행 즉시 1번 가동
 getAllLinksAndSave();
-
-// [수정 가능 4] 💡 자동 갱신 시간 설정
-const REPEAT_HOURS = 24; 
-const REPEAT_TIME = REPEAT_HOURS * 60 * 60 * 1000; 
-
-// 2. 설정 시간마다 무한 반복
-setInterval(getAllLinksAndSave, REPEAT_TIME);
-
-console.log(`⏳ ${REPEAT_HOURS}시간에 한 번씩... URL 자동 수집기가 켜졌습니다. (종료: Ctrl+C)`);

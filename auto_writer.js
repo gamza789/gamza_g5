@@ -7,6 +7,11 @@ const { getScreenResolution, runSingleBrowser } = require('./browser');
 const { loadNormalJobs } = require('./reader_normal');
 const { loadLoginJobs } = require('./reader_login');
 
+// 💡 [새로 추가된 부품] 다른 자바스크립트 파일을 터미널처럼 실행시켜주는 부품!
+const { exec } = require('child_process');
+const util = require('util');
+const execAsync = util.promisify(exec);
+
 const accountId = process.argv[2];
 if (!accountId) {
     console.log("\n🚨 [실행 오류] 명령어 뒤에 실행할 아이디를 적지 않으셨습니다!");
@@ -109,8 +114,27 @@ async function startMultiPosting() {
         const success = await runPostingCycle(cycle, screen);
         if (!success) { console.log("\n🛑 반복 작업을 중단합니다."); break; }
 
+        // =========================================================
+        // 💡 [핵심 추가] 한 바퀴 끝난 직후! 청소기 & 수집기 가동
+        // =========================================================
+        console.log(`\n=================================================`);
+        console.log(` 🛠️ [사이클 후속 작업] 청소 및 다음 바퀴 주소 갱신 시작...`);
+        try {
+            console.log(` 🧹 1. cleaner.js 실행 중...`);
+            await execAsync('node cleaner.js'); 
+            console.log(` ✅ 임시파일 및 휴지통 청소 완료!`);
+
+            console.log(` 🌐 2. list.js 실행 중 (새로운 주소 추출 중)...`);
+            await execAsync('node list.js');    
+            console.log(` ✅ url.txt 및 url_login.txt 갱신 완료!`);
+        } catch (error) {
+            console.log(` ❌ 후속 작업 중 오류 발생 (무시하고 계속 진행): ${error.message}`);
+        }
+        console.log(`=================================================\n`);
+        // =========================================================
+
         if (REPEAT_COUNT === 0 || cycle < REPEAT_COUNT) {
-            console.log(`\n🎉 [사이클 ${cycle}] 완료! ${REPEAT_DELAY_MIN}분 대기...`);
+            console.log(`\n🎉 [사이클 ${cycle}] 완료! 다음 실행을 위해 ${REPEAT_DELAY_MIN}분 대기(휴식)합니다...`);
             await new Promise(res => setTimeout(res, REPEAT_DELAY_MIN * 60 * 1000));
         }
         cycle++; 
