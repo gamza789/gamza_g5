@@ -43,13 +43,12 @@ function getWindowBounds(index, screenWidth, screenHeight, totalCount) {
 
 async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, screenHeight, totalCount, urlIndex, cycleNumber, config) {
     
-    // 💡 메인 봇에서 넘겨받은 설정값 (로그인 모드인지 여부 포함)
     const { titleKeys, contentKeys, FIXED_PASSWORD, isLoginMode, loginInfo } = config;
 
     const bounds = getWindowBounds(workerId, screenWidth, screenHeight, totalCount);
     const logPrefix = `[C${cycleNumber} 창 #${workerId + 1} url_${urlIndex}]`;
 
-   const browser = await puppeteer.launch({
+    const browser = await puppeteer.launch({
         headless: false,
         defaultViewport: null,
         channel: 'chrome',
@@ -60,10 +59,8 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
-            //브라우저의 엄격한 웹 보안 정책(CORS 등)을 강제로 무장 해제합니다.
             '--disable-web-security',
             '--mute-audio',
-            // 💡 [사장님 추가 옵션] 디스크 캐시 생성 원천 차단 (SSD 보호 및 속도 향상)
             '--disk-cache-size=1',
             '--media-cache-size=1',
             '--disable-application-cache'
@@ -76,7 +73,7 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
     page.on('dialog', async dialog => {
         dialogMessage = dialog.message();
         console.log(`${logPrefix} 🔔 팝업 감지: ${dialogMessage}`);
-        await dialog.accept().catch(()=>{}); // 팝업은 무조건 '확인'을 눌러 닫습니다.
+        await dialog.accept().catch(()=>{}); 
     });
 
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -101,62 +98,53 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
     }
 
     try {
-        // =========================================================
-        // 💡 [핵심 변경] 로그인 모드 여부에 따라 진입 방식을 완벽하게 나눕니다!
-        // =========================================================
         if (isLoginMode && loginInfo) {
             const { loginUrl, loginId, loginPw } = loginInfo;
-            
             console.log(`${logPrefix} 🔐 [회원 전용] 로그인 절차를 시작합니다.`);
-            
-            // 1. '회원만 이용 가능합니다' 팝업을 띄워서 끄기 위해 글쓰기 주소로 먼저 한번 찔러봅니다.
             await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 15000 }).catch(()=>{});
             await randomWait(1, 2);
-
-            // 2. 로그인 페이지로 이동!
             console.log(`${logPrefix} 🔑 로그인 페이지 진입 중: ${loginUrl}`);
             await page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 15000 }).catch(()=>{});
             await randomWait(1, 2);
-
-            // 3. 아이디 / 비밀번호 타이핑
             console.log(`${logPrefix} ⌨️ 아이디와 비밀번호를 입력합니다...`);
             await page.type('input[name="mb_id"], #login_id', loginId, { delay: 50 }).catch(()=>{});
             await page.type('input[name="mb_password"], #login_pw', loginPw, { delay: 50 }).catch(()=>{});
-            
-            // 4. 로그인 버튼 클릭 후 화면이 넘어갈 때까지 대기
             await Promise.all([
                 page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(()=>{}),
                 page.click('button.btn_submit, button[type="submit"]').catch(()=>{})
             ]);
             console.log(`${logPrefix} 🔓 로그인 성공! 본 목적지(글쓰기 폼)로 이동합니다.`);
-
-            // 5. 다시 본래 글쓰기 폼(targetUrl) 주소로 이동!
             await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 60000 });
-            
         } else {
-            // 🟢 일반 모드일 경우: 다이렉트로 바로 글쓰기 폼에 접속!
             console.log(`${logPrefix} 🌐 [일반 모드] 접속 중: ${targetUrl}`);
             await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 60000 });
         }
-        // =========================================================
         
         const hasWriteForm = await page.$('#wr_subject');
         if (!hasWriteForm) {
-            console.log(`${logPrefix} ⚠️ [빠른 손절] 글쓰기 폼이 없습니다! (로그인 실패 혹은 차단)`);
+            console.log(`${logPrefix} ⚠️ [빠른 손절] 글쓰기 폼(제목 칸)이 없습니다! (접근 권한 없음)`);
             await logErrorUrl(targetUrl); 
             throw new Error("글쓰기 권한 없음"); 
         }
 
-        const hasCaptcha = await page.$('#captcha_img, #kcaptcha_image, #captcha_mp3, #captcha_audio');
-        if (!hasCaptcha) {
-            console.log(`${logPrefix} ⚠️ [빠른 손절] 캡차가 아예 없습니다! (비정상 페이지)`);
-            throw new Error("캡차 없음"); 
+        // ====================================================================
+        // 💡 [핵심 변경] 캡차가 있는지 없는지 '검사'만 하고, 없어도 도망가지 않습니다!
+        // ====================================================================
+        const hasCaptchaElement = await page.$('#captcha_img, #kcaptcha_image, #captcha_mp3, #captcha_audio');
+        const isCaptchaExist = !!hasCaptchaElement;
+
+        if (isCaptchaExist) {
+            console.log(`${logPrefix} 🛡️ 캡차가 발견되었습니다. 우회 준비를 합니다.`);
+        } else {
+            console.log(`${logPrefix} ℹ️ 캡차가 없는 게시판입니다! (프리패스 진행)`);
         }
 
         console.log(`${logPrefix} ⏳ [스마트 대기] 화면이 완벽히 뜰 때까지 추적합니다...`);
-        
         await page.waitForSelector('#wr_subject', { visible: true, timeout: 30000 }).catch(() => {});
-        await page.waitForSelector('#captcha_img, #kcaptcha_image, #captcha_mp3, #captcha_audio', { visible: true, timeout: 30000 }).catch(() => {});
+        
+        if (isCaptchaExist) {
+            await page.waitForSelector('#captcha_img, #kcaptcha_image, #captcha_mp3, #captcha_audio', { visible: true, timeout: 30000 }).catch(() => {});
+        }
         
         const isSmartEditor = await page.$('iframe[src*="SmartEditor2Skin"]');
         if (isSmartEditor) {
@@ -192,27 +180,53 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
             }, contentToInput);
         }
 
-        console.log(`${logPrefix} 🛡️ 음성 캡차 돌파 시작 (최대 5회 재도전)`);
+        // ====================================================================
+        // 💡 [핵심 분기점] 캡차가 있으면 풀고, 없으면 바로 등록 버튼을 누릅니다!
+        // ====================================================================
+        if (isCaptchaExist) {
+            console.log(`${logPrefix} 🛡️ 음성 캡차 돌파 시작 (최대 5회 재도전)`);
+            for (let attempt = 1; attempt <= 5; attempt++) {
+                dialogMessage = ''; 
+                if (attempt > 1) {
+                    console.log(`${logPrefix} 🔄 [${attempt}번째 재도전] 새로운 문제를 받기 위해 캡차 [새로고침] 버튼을 클릭합니다...`);
+                    await page.evaluate(() => {
+                        const reloadBtn = document.querySelector('#captcha_reload');
+                        const img = document.querySelector('#captcha_img, #kcaptcha_image');
+                        if (reloadBtn) reloadBtn.click();
+                        else if (img) img.click();
+                    });
+                    await randomWait(3, 4); 
+                }
 
-        for (let attempt = 1; attempt <= 5; attempt++) {
-            dialogMessage = ''; 
-            if (attempt > 1) {
-                console.log(`${logPrefix} 🔄 [${attempt}번째 재도전] 새로운 문제를 받기 위해 캡차 [새로고침] 버튼을 클릭합니다...`);
-                await page.evaluate(() => {
-                    const reloadBtn = document.querySelector('#captcha_reload');
-                    const img = document.querySelector('#captcha_img, #kcaptcha_image');
-                    if (reloadBtn) reloadBtn.click();
-                    else if (img) img.click();
-                });
-                await randomWait(3, 4); 
+                const isSolved = await solveAudioCaptcha(page, logPrefix);
+                if (!isSolved) continue; 
+
+                console.log(`${logPrefix} ⏳ 캡차 입력 완료! 작성완료 버튼 클릭 전 5~10초 대기 중...`);
+                await randomWait(5, 10);
+                
+                const submitBtn = await page.$('#btn_submit');
+                if (submitBtn) {
+                    console.log(`${logPrefix} 🚀 [작성완료] 버튼 클릭!`);
+                    await page.click('#btn_submit').catch(() => {});
+                    await randomWait(3, 4); 
+                }
+
+                if (dialogMessage.includes('자동등록방지') || dialogMessage.includes('글자') || dialogMessage.includes('틀렸')) {
+                    console.log(`${logPrefix} ❌ 캡차 오답 팝업 발생! 서버가 오답 처리했습니다.`);
+                    if (attempt === 5) break;
+                    continue;
+                } else if (dialogMessage.includes('금지') || dialogMessage.includes('권한') || dialogMessage.includes('로그인')) {
+                    console.log(`${logPrefix} ❌ 권한/금지어 에러 발생.`);
+                    break;
+                } else {
+                    console.log(`${logPrefix} ✅ 게시글 작성 성공!`);
+                    break; 
+                }
             }
-
-            const isSolved = await solveAudioCaptcha(page, logPrefix);
-            
-            if (!isSolved) continue; 
-
-            console.log(`${logPrefix} ⏳ 캡차 입력 완료! 작성완료 버튼 클릭 전 5~10초 대기 중...`);
-            await randomWait(5, 10);
+        } else {
+            // 🟢 캡차가 아예 없는 게시판일 때의 행동
+            console.log(`${logPrefix} ⏳ 캡차가 없으므로 3~5초 대기 후 바로 [작성완료] 버튼을 누릅니다...`);
+            await randomWait(3, 5); // 너무 빨리 누르면 매크로로 차단당할 수 있어 약간 대기
             
             const submitBtn = await page.$('#btn_submit');
             if (submitBtn) {
@@ -221,16 +235,11 @@ async function runSingleBrowser(workerId, targetUrl, contentData, screenWidth, s
                 await randomWait(3, 4); 
             }
 
-            if (dialogMessage.includes('자동등록방지') || dialogMessage.includes('글자') || dialogMessage.includes('틀렸')) {
-                console.log(`${logPrefix} ❌ 캡차 오답 팝업 발생! 서버가 오답 처리했습니다.`);
-                if (attempt === 5) break;
-                continue;
-            } else if (dialogMessage.includes('금지') || dialogMessage.includes('권한') || dialogMessage.includes('로그인')) {
+            // 에러 팝업 떴는지 체크
+            if (dialogMessage.includes('금지') || dialogMessage.includes('권한') || dialogMessage.includes('로그인')) {
                 console.log(`${logPrefix} ❌ 권한/금지어 에러 발생.`);
-                break;
             } else {
-                console.log(`${logPrefix} ✅ 게시글 작성 성공!`);
-                break; 
+                console.log(`${logPrefix} ✅ 게시글 작성 성공 (캡차 프리패스)!`);
             }
         }
 

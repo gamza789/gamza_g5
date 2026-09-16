@@ -7,7 +7,7 @@ const { getScreenResolution, runSingleBrowser } = require('./browser');
 // - 일반 주소 예시: "http://www.abc.com/bbs/write.php"
 // - 로그인 주소 예시: "http://글쓰기주소|login,http://로그인주소,아이디,비번"
 // ==============================================================================
-const DEFAULT_TEST_STRING = "여기에_테스트할_주소를_복사해서_붙여넣으세요"; 
+const DEFAULT_TEST_STRING = "http://www.hyowonrnc.com/V2/bbs/write.php?bo_table=notice|login,http://www.hyowonrnc.com/V2/bbs/login.php,ciaa2,Azaz0101!!";
 
 
 // 1. 터미널에서 주소를 직접 입력했는지 확인하고, 없으면 위의 기본 주소를 씁니다.
@@ -88,6 +88,3 @@ async function runTest() {
 }
 
 runTest();
-
-//일반: node test_url.js "[http://abc.com/write.php]"
-//로그인: node test_url.js "[http://abc.com/write.php]|login,[http://abc.com/login.php,admin,1234]"
